@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Q&A Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Transcript Q&A Bot</h1>
+        <p>Choose an option below:</p>
+
+        <div class="action-buttons">
+            <form action="{{ url_for('process_video') }}" method="post" class="inline-form">
+                <label for="video_url">YouTube Video URL:</label>
+                <input type="text" id="video_url" name="video_url" placeholder="e.g., https://www.youtube.com/watch?v=Gfr50f6ZBvo" required>
+                <button type="submit">Process Video & Ask Questions</button>
+            </form>
+            <p class="or-separator">OR</p>
+            <a href="{{ url_for('direct_qa_page') }}" class="button">Start Direct Chat with AI</a>
+        </div>
+
+        {% if error %}
+            <p class="error-message">{{ error }}</p>
+        {% endif %}
+    </div>
+</body>
+</html>

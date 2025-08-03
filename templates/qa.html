@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q&A for {{ video_id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Q&A for Video: <a href="https://www.youtube.com/watch?v={{ video_id }}" target="_blank">{{ video_id }}</a></h1>
+        <p>Ask questions about the video transcript below.</p>
+
+        <div class="qa-section">
+            <div id="conversation-area">
+                <!-- Conversation will appear here -->
+            </div>
+
+            <div class="input-area">
+                <input type="text" id="question-input" placeholder="Ask your question here..." required>
+                <button id="ask-button">Ask</button>
+            </div>
+            <!-- IMPORTANT CHANGE: Added style="display: none;" inline -->
+            <div id="loading-indicator" class="hidden" style="display: none;">
+                <div class="spinner"></div>
+                <p>Thinking...</p>
+            </div>
+            <p id="error-message" class="error-message hidden"></p>
+        </div>
+
+        <div class="action-buttons">
+            <button id="save-chat-button">Save Chat</button>
+            <a href="{{ url_for('index') }}" class="button back-button">Process another video</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('ask-button').addEventListener('click', askQuestion);
+        document.getElementById('question-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                askQuestion();
+            }
+        });
+        document.getElementById('save-chat-button').addEventListener('click', saveChatHistory);
+
+        function setInputState(disabled) {
+            document.getElementById('question-input').disabled = disabled;
+            document.getElementById('ask-button').disabled = disabled;
+            document.getElementById('save-chat-button').disabled = disabled;
+            document.querySelector('.back-button').classList.toggle('disabled', disabled);
+        }
+
+        async function askQuestion() {
+            const questionInput = document.getElementById('question-input');
+            const question = questionInput.value.trim();
+            const conversationArea = document.getElementById('conversation-area');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const errorMessage = document.getElementById('error-message');
+
+            if (!question) {
+                errorMessage.textContent = "Please enter a question.";
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+
+            errorMessage.classList.add('hidden'); // Hide previous errors
+            questionInput.value = ''; // Clear input
+
+            // Display user's question
+            const userQuestionDiv = document.createElement('div');
+            userQuestionDiv.classList.add('message', 'user-message');
+            userQuestionDiv.innerHTML = `<strong>You:</strong> ${question}`;
+            conversationArea.appendChild(userQuestionDiv);
+            conversationArea.scrollTop = conversationArea.scrollHeight; // Scroll to bottom
+
+            loadingIndicator.classList.remove('hidden'); // Show loading indicator
+            setInputState(true); // Disable input
+
+            try {
+                const response = await fetch('/ask_question', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const botAnswerDiv = document.createElement('div');
+                    botAnswerDiv.classList.add('message', 'bot-message');
+                    botAnswerDiv.innerHTML = `<strong>Bot:</strong> ${data.answer}`;
+                    conversationArea.appendChild(botAnswerDiv);
+                } else {
+                    errorMessage.textContent = data.error || "An unknown error occurred.";
+                    errorMessage.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                errorMessage.textContent = "Could not connect to the server. Please try again.";
+                errorMessage.classList.remove('hidden');
+            } finally {
+                loadingIndicator.classList.add('hidden'); // Hide loading indicator
+                setInputState(false); // Re-enable input
+                conversationArea.scrollTop = conversationArea.scrollHeight; // Scroll to bottom
+            }
+        }
+
+        async function saveChatHistory() {
+            const conversationArea = document.getElementById('conversation-area');
+            const messages = Array.from(conversationArea.children).map(div => {
+                return {
+                    role: div.classList.contains('user-message') ? 'user' : 'bot',
+                    text: div.textContent.replace(/^(You:|Bot:)\s*/, '') // Clean up "You:"/"Bot:" prefix
+                };
+            });
+
+            const saveButton = document.getElementById('save-chat-button');
+            const originalButtonText = saveButton.textContent;
+            saveButton.textContent = "Saving...";
+            saveButton.disabled = true;
+
+            try {
+                const response = await fetch('/save_chat_history', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ chat_history: messages })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message); // Use alert for simple confirmation
+                } else {
+                    alert("Error saving chat: " + (data.error || "Unknown error"));
+                }
+            } catch (error) {
+                console.error('Error saving chat history:', error);
+                alert("Failed to connect to server to save chat history.");
+            } finally {
+                saveButton.textContent = originalButtonText;
+                saveButton.disabled = false;
+            }
+        }
+
+        // --- New Script for Initial Page Load State ---
+        document.addEventListener('DOMContentLoaded', (event) => {
+            // Ensure loading indicator is hidden on page load
+            document.getElementById('loading-indicator').classList.add('hidden');
+            // Ensure inputs are enabled on page load
+            setInputState(false);
+        });
+        // --- End New Script ---
+    </script>
+</body>
+</html>

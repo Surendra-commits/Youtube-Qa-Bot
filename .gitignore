@@ -1,0 +1,16 @@
+# Ignore virtual environment
+venv/
+.env
+__pycache__/
+*.pyc
+test.py
+
+# IDE files
+.vscode/
+*.log
+
+# Node modules (for JS apps)
+node_modules/
+
+# Static files you don’t want to upload
+*.zip
