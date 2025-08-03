@@ -126,61 +126,98 @@ def save_faiss_index_to_blob(faiss_index_obj, video_id):
     if not container_client:
         return False
 
+    temp_dir = f"temp_faiss_index_{video_id}" # Use video_id for unique temp dir
+    os.makedirs(temp_dir, exist_ok=True)
+    index_prefix = os.path.join(temp_dir, "index")
+
     try:
-        temp_dir = "temp_faiss_index"
-        os.makedirs(temp_dir, exist_ok=True)
+        # Save FAISS index locally (creates index.faiss and index.pkl)
+        faiss_index_obj.save_local(temp_dir, index_name="index") # Save directly to temp_dir with a name
 
-        # Use a prefix, not a full file path
-        index_prefix = os.path.join(temp_dir, "index")
+        # Upload both .faiss and .pkl files
+        faiss_file_path = os.path.join(temp_dir, "index.faiss")
+        pkl_file_path = os.path.join(temp_dir, "index.pkl")
 
-        # Save FAISS index (this will create index.faiss and possibly index.pkl)
-        faiss_index_obj.save_local(index_prefix)
+        if os.path.exists(faiss_file_path):
+            blob_client_faiss = container_client.get_blob_client(f"faiss_index_{video_id}.faiss")
+            with open(faiss_file_path, "rb") as f:
+                blob_client_faiss.upload_blob(f.read(), overwrite=True)
+            print(f"FAISS index data for {video_id} saved to Blob Storage.")
+        else:
+            print(f"Warning: .faiss file not found at {faiss_file_path}")
+            return False
 
-        # Now read the correct .faiss file
-        faiss_file_path = index_prefix + ".faiss"
-
-        with open(faiss_file_path, "rb") as f:
-            index_bytes = f.read()
-
-        blob_client = container_client.get_blob_client(f"faiss_index_{video_id}.bin")
-        blob_client.upload_blob(index_bytes, overwrite=True)
-        print(f"FAISS index for {video_id} saved to Blob Storage.")
-
-        # Cleanup
-        os.remove(faiss_file_path)
-        if os.path.exists(index_prefix + ".pkl"):
-            os.remove(index_prefix + ".pkl")
-        os.rmdir(temp_dir)
+        if os.path.exists(pkl_file_path):
+            blob_client_pkl = container_client.get_blob_client(f"faiss_index_{video_id}.pkl")
+            with open(pkl_file_path, "rb") as f:
+                blob_client_pkl.upload_blob(f.read(), overwrite=True)
+            print(f"FAISS index metadata for {video_id} saved to Blob Storage.")
+        else:
+            print(f"Warning: .pkl file not found at {pkl_file_path}")
+            return False
 
         return True
-
+    except Exception as e:
+        print(f"Error saving FAISS index for {video_id} to Blob Storage: {e}")
+        return False
+    finally:
+        # Cleanup: remove temporary files and directory
+        if os.path.exists(faiss_file_path):
+            os.remove(faiss_file_path)
+        if os.path.exists(pkl_file_path):
+            os.remove(pkl_file_path)
+        if os.path.exists(temp_dir):
+            os.rmdir(temp_dir)
         
 
 def load_faiss_index_from_blob(video_id, embeddings_model):
     container_client = get_blob_container_client("faiss-indexes")
-    if not container_client: return None
-    try:
-        blob_client = container_client.get_blob_client(f"{video_id}.bin")
-        if blob_client.exists():
-            download_stream = blob_client.download_blob()
-            index_bytes = download_stream.readall()
-            index_bytes_io = io.BytesIO(index_bytes)
-
-            temp_dir = "temp_faiss_index_load"
-            os.makedirs(temp_dir, exist_ok=True)
-            temp_path = os.path.join(temp_dir, "index.faiss")
-            with open(temp_path, "wb") as f:
-                f.write(index_bytes_io.getvalue())
-
-            faiss_vector_store = FAISS.load_local(temp_path, embeddings_model, allow_dangerous_deserialization=True)
-            print(f"FAISS index for {video_id} loaded from Blob Storage.")
-            os.remove(temp_path)
-            os.rmdir(temp_dir)
-            return faiss_vector_store
+    if not container_client:
         return None
+
+    temp_dir = f"temp_faiss_index_load_{video_id}" # Use video_id for unique temp dir
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_faiss_path = os.path.join(temp_dir, "index.faiss")
+    temp_pkl_path = os.path.join(temp_dir, "index.pkl")
+
+    try:
+        # Download .faiss file
+        blob_client_faiss = container_client.get_blob_client(f"faiss_index_{video_id}.faiss")
+        if blob_client_faiss.exists():
+            with open(temp_faiss_path, "wb") as f:
+                download_stream = blob_client_faiss.download_blob()
+                f.write(download_stream.readall())
+        else:
+            print(f"FAISS .faiss file for {video_id} not found in Blob Storage.")
+            return None
+
+        # Download .pkl file
+        blob_client_pkl = container_client.get_blob_client(f"faiss_index_{video_id}.pkl")
+        if blob_client_pkl.exists():
+            with open(temp_pkl_path, "wb") as f:
+                download_stream = blob_client_pkl.download_blob()
+                f.write(download_stream.readall())
+        else:
+            print(f"FAISS .pkl file for {video_id} not found in Blob Storage.")
+            # It's possible to load without .pkl if only index is needed, but for full FAISS.load_local, it's usually required.
+            # For Langchain's FAISS, the .pkl is crucial for docstore and embeddings.
+            return None
+
+        # Load FAISS index from the temporary directory
+        faiss_vector_store = FAISS.load_local(temp_dir, embeddings_model, allow_dangerous_deserialization=True)
+        print(f"FAISS index for {video_id} loaded from Blob Storage.")
+        return faiss_vector_store
     except Exception as e:
         print(f"Error loading FAISS index for {video_id} from Blob Storage: {e}")
         return None
+    finally:
+        # Cleanup: remove temporary files and directory
+        if os.path.exists(temp_faiss_path):
+            os.remove(temp_faiss_path)
+        if os.path.exists(temp_pkl_path):
+            os.remove(temp_pkl_path)
+        if os.path.exists(temp_dir):
+            os.rmdir(temp_dir)
 
 # --- Helper Function to Extract Video ID ---
 def get_youtube_video_id(url):
