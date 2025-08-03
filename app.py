@@ -123,25 +123,38 @@ def load_transcript_from_blob(video_id):
 
 def save_faiss_index_to_blob(faiss_index_obj, video_id):
     container_client = get_blob_container_client("faiss-indexes")
-    if not container_client: return False
+    if not container_client:
+        return False
+
     try:
         temp_dir = "temp_faiss_index"
         os.makedirs(temp_dir, exist_ok=True)
-        temp_path = os.path.join(temp_dir, "index.faiss")
-        faiss_index_obj.save_local(temp_path)
 
-        with open(temp_path, "rb") as f:
+        # Use a prefix, not a full file path
+        index_prefix = os.path.join(temp_dir, "index")
+
+        # Save FAISS index (this will create index.faiss and possibly index.pkl)
+        faiss_index_obj.save_local(index_prefix)
+
+        # Now read the correct .faiss file
+        faiss_file_path = index_prefix + ".faiss"
+
+        with open(faiss_file_path, "rb") as f:
             index_bytes = f.read()
 
         blob_client = container_client.get_blob_client(f"faiss_index_{video_id}.bin")
         blob_client.upload_blob(index_bytes, overwrite=True)
         print(f"FAISS index for {video_id} saved to Blob Storage.")
-        os.remove(temp_path)
+
+        # Cleanup
+        os.remove(faiss_file_path)
+        if os.path.exists(index_prefix + ".pkl"):
+            os.remove(index_prefix + ".pkl")
         os.rmdir(temp_dir)
+
         return True
-    except Exception as e:
-        print(f"Error saving FAISS index for {video_id} to Blob Storage: {e}")
-        return False
+
+        
 
 def load_faiss_index_from_blob(video_id, embeddings_model):
     container_client = get_blob_container_client("faiss-indexes")
